@@ -63,21 +63,25 @@ class Model:
             return merged[2]
 
     def make_inference(self, I0, I1, n, scale=1):
-        """Generate `n` interpolated frames between I0 and I1 via recursive halving.
+        """Generate `n` frames between I0 and I1 via the classic recursive halving.
 
         This is the classic RIFE video inference trick: to get `n` frames we
-        repeatedly split each pair in half, which keeps the flow estimation
-        local and stable.
+        compute the midpoint, then recursively interpolate each half, which
+        keeps flow estimation local and stable. Returns a list of `n` frames.
+
+        n=1 -> [m]
+        n=2 -> [m01, m12]   (two frames, splitting the interval in half)
+        n=3 -> [m01, mid, m12]
         """
-        if n == 0:
+        if n <= 0:
             return []
+        middle = self.inference(I0, I1, scale)
         if n == 1:
-            return [self.inference(I0, I1, scale)]
-        first_half = self.make_inference(I0, I1, n // 2, scale)
-        second_half = self.make_inference(I0, I1, n // 2, scale)
+            return [middle]
+        first_half = self.make_inference(I0, middle, n // 2, scale)
+        second_half = self.make_inference(middle, I1, n // 2, scale)
         if n % 2:
-            mid = self.inference(I0, I1, scale)
-            return [*first_half, mid, *second_half]
+            return [*first_half, middle, *second_half]
         else:
             return [*first_half, *second_half]
 
@@ -121,4 +125,4 @@ class Model:
     def load(self, path):
         def convert(param):
             return {k.replace("module.", ""): v for k, v in param.items()}
-        self.flownet.load_state_dict(convert(torch.load(f"{path}/flownet.pkl")))
+        self.flownet.load_state_dict(convert(torch.load(f"{path}/flownet.pkl", map_location="cpu")))
