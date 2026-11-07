@@ -3,6 +3,10 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+# Module-level grid cache (shared across calls, keyed by (device, shape)).
+# Mirrors the original warplayer.py from ECCV2022-RIFE (MIT).
+backwarp_tenGrid = {}
+
 
 def warp(tenInput, tenFlow):
     k = (str(tenFlow.device), tuple(tenFlow.size()))
