@@ -5,6 +5,9 @@
 
 Prefer ``huggingface_hub`` (handles LFS + auth/redirects) and fall back to
 plain HTTP on the ``/resolve/main/`` URL.
+
+Returns (kind, path) where kind in {'torch','onnx'} and path is the
+flownet.pkl file (torch) or the .onnx file (onnx).
 """
 
 import os
@@ -12,6 +15,7 @@ import shutil
 
 TORCH_REPO = "Anson-Saju-George/wms-rifev3"
 TORCH_FILE = "train_log/flownet.pkl"
+TORCH_NAME = "train_log_flownet.pkl"
 ONNX_REPO = "edgetools/rife"
 ONNX_FILE = "rife49.onnx"
 
@@ -35,79 +39,53 @@ def _download_url(url, dest, retries=3):
     return dest
 
 
-def _download_hf(repo, filename, cache_dir, dest, force=False):
+def _download_hf(repo, filename, cache_dir, dest):
     import huggingface_hub as hfh
     src = hfh.hf_hub_download(
         repo_id=repo, repo_type="model", filename=filename,
-        cache_dir=cache_dir, force_download=force,
+        cache_dir=cache_dir,
     )
     if not os.path.exists(dest) or os.path.getsize(dest) == 0:
         shutil.copy(src, dest)
     return dest
 
 
-def fetch(cache_dir="./models", want=None, download=True, verbose=True):
-    """Ensure weights are present and return (kind, path).
-
-    kind in {'torch', 'onnx'}; path is the flownet.pkl file (torch) or the
-    .onnx file (onnx).
-
-    want in {'torch', 'onnx', None} (None => torch if available else onnx).
-    """
+def _ensure(path, kind, repo, fn, download, verbose):
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return
     if not download:
-        torch_path = os.path.join(cache_dir, TORCH_FILE.replace('/', '_').split('/')[-1])
-        onnx_path = os.path.join(cache_dir, "rife49.onnx")
-        if want in (None, "torch") and os.path.exists(torch_path) and os.path.getsize(torch_path) > 0:
-            return "torch", torch_path
-        if want in (None, "onnx") and os.path.exists(onnx_path) and os.path.getsize(onnx_path) > 0:
-            return "kind", onnx_path
-        raise FileNotFoundError("No weights found; pass --download or --model/--onnx")
+        raise FileNotFoundError(f"No {kind} weight at {path}")
+    if verbose:
+        print(f"[weights] downloading {kind} -> {path}")
+    try:
+        _download_hf(repo, fn, os.path.dirname(path) or ".", dest := path)
+    except Exception as e:
+        if verbose:
+            print(f"[weights] {kind}: huggingface_hub failed ({e.__class__.__name__}); trying HTTP")
+        if not (os.path.exists(path) and os.path.getsize(path) > 0):
+            _download_url(_hf_url(repo, fn), path)
+    if not (os.path.exists(path) and os.path.getsize(path) > 0):
+        raise FileNotFoundError(f"Failed to download {kind} weight")
 
+
+def fetch(cache_dir="./models", want=None, download=True, verbose=True):
+    """Return (kind, path) after ensuring weights are present.
+
+    want in {'torch', 'onnx', None}:
+      None -> prefer torch, fall back to onnx if torch is unavailable/failed.
+    """
     os.makedirs(cache_dir, exist_ok=True)
-    torch_name = TORCH_FILE.replace('/', '_')  # train_log_flownet.pkl
-    torch_path = os.path.join(cache_dir, torch_name)
+    torch_path = os.path.join(cache_dir, TORCH_NAME)
     onnx_path = os.path.join(cache_dir, ONNX_FILE)
 
-    def prefer(kind, path):
-        if want in (None, kind) and os.path.exists(path) and os.path.getsize(path) > 0:
-            return kind, path
-        return None
-
-    # torch first (best on ROCm), fall back to onnx
-    if want in (None, "torch"):  # want torch or unspecified
+    if want in (None, "torch"):
         try:
-            if not (os.path.exists(torch_path) and os.path.getsize(torch_path) > 0):
-                if verbose:
-                    print(f"[weights] downloading torch checkpoint -> {torch_path}")
-                try:
-                    _download_hf(TORCH_REPO, TORCH_FILE, cache_dir, torch_path)
-                except Exception as e:
-                    if verbose:
-                        print(f"[weights] huggingface_hub failed ({e.__class__.__name__}); falling back to HTTP")
-                if not (os.path.exists(torch_path) and os.path.getsize(torch_path) > 0):
-                    if verbose:
-                        print(f"[weights] HTTP download -> {torch_path}")
-                    _download_url(_hf_url(TORCH_REPO, TORCH_FILE), torch_path)
-            res = prefer("torch", torch_path)
-            if res:
-                return res
+            _ensure(torch_path, "torch", TORCH_REPO, TORCH_FILE, download, verbose)
+            return "torch", torch_path
         except Exception as e:
-            if verbose:
-                print(f"[weights] torch download failed: {e}")
+            if want is None and verbose:
+                print(f"[weights] torch failed ({e.__class__.__name__}); falling back to onnx")
     if want in (None, "onnx"):
-        if not (os.path.exists(onnx_path) and os.path.getsize(onnx_path) > 0):
-            if verbose:
-                print(f"[weights] downloading ONNX -> {onnx_path}")
-            try:
-                _download_hf(ONNX_REPO, ONNX_FILE, cache_dir, onnx_path)
-            except Exception as e:
-                if verbose:
-                    print(f"[weights] huggingface_hub failed ({e.__class__.__name__}); falling back to HTTP")
-            if not (os.path.exists(onnx_path) and os.path.getsize(onnx_path) > 0):
-                if verbose:
-                    print(f"[weights] HTTP download -> {onnx_path}")
-                _download_url(_hf_url(ONNX_REPO, ONNX_FILE), onnx_path)
-        res = prefer("onnx", onnx_path)
-        if res:
-            return res
-    raise FileNotFoundError("Could not download any model weights.")
+        _ensure(onnx_path, "onnx", ONNX_REPO, ONNX_FILE, download, verbose)
+        return "onnx", onnx_path
+    raise ValueError(f"unknown want={want!r}")
