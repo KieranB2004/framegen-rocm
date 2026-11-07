@@ -67,7 +67,7 @@ class Unet(nn.Module):
         self.up0 = deconv(512, 128)
         self.up1 = deconv(256, 64)
         self.up2 = deconv(128, 32)
-        self.up3 = deconv(32, 16)
+        self.up3 = deconv(64, 16)
         self.conv = nn.Conv2d(16, 3, 3, 1, 1)
 
     def forward(self, img0, img1, warped_img0, warped_img1, mask, flow, c0, c1):
@@ -81,6 +81,5 @@ class Unet(nn.Module):
         x = self.up3(torch.cat((x, s0), 1)) 
         x = self.conv(x)
         return torch.sigmoid(x)
-
 
 c = 16
