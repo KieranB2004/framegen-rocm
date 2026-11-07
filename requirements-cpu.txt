@@ -1,0 +1,7 @@
+# requirements-cpu.txt  (any OS, CPU fallback)
+numpy
+opencv-python
+tqdm
+huggingface_hub
+torch --index-url https://download.pytorch.org/whl/cpu
+onnxruntime

@@ -1,0 +1,16 @@
+# requirements-rocm.txt  (Linux + AMD ROCm)
+# Base deps (installed by `pip install -e .` too)
+numpy
+opencv-python
+tqdm
+huggingface_hub
+
+# PyTorch-with-ROCm is NOT on PyPI. Install it from the ROCm index that matches
+# your ROCm version (see setup.sh). Example:
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+# (omit from this file so `pip install -e .` never grabs the CPU/CUDA wheel)
+
+# Optional: ONNX Runtime + MIGraphX EP (run RIFE on the GPU via ONNX, no torch)
+# onnxruntime
+# optional: export your own ONNX
+# onnx

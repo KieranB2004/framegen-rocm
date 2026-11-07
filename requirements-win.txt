@@ -1,0 +1,22 @@
+# requirements-win.txt  (Windows)
+#
+# NOTE: AMD does NOT officially support ROCm on Windows for the RX 6700 XT
+# (gfx1031). So on Windows we use ONNX Runtime + an AMD-friendly EP:
+#
+#   * DirectML EP  (uses the AMD GPU on Windows)  ->  pip install onnxruntime-directml
+#   * CPU EP       (works everywhere, slower)      ->  pip install onnxruntime
+#
+# For a *native torch* run on Windows you can use the CPU build of torch:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Base
+numpy
+opencv-python
+tqdm
+huggingface_hub
+
+# ONNX Runtime (CPU EP, always present)
+onnxruntime
+# AMD GPU on Windows via DirectML:
+onnxruntime-directml
