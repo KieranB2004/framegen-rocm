@@ -44,38 +44,56 @@ Be aware of the landscape (important for interviews too):
 
 ## Quickstart
 
+> All platforms: clone + `pip install -e .` (this makes the `framegen` package importable, so `python -m framegen.cli` works).
+
 ### 🐧 Linux + ROCm (recommended, full GPU)
 
 ```bash
-# 0. you need ROCm + its driver installed (you said this works on your box)
 git clone https://github.com/KieranB2004/framegen-rocm
 cd framegen-rocm
 python -m venv .venv && source .venv/bin/activate
-pip install -e .                                    # base deps
-cd .. && pip install torch --index-url https://download.pytorch.org/whl/rocm6.4 && cd -
-#          ↑ use the index that matches YOUR rocM (see setup.sh / docs/rocm-guide.md)
+pip install --upgrade pip
+pip install -e .                        # base deps (numpy, opencv, ...)
 
-python -m framegen.cli --list-backends              # confirm a GPU EP is present
-python scripts/make_demo.py                         # → demo.mp4
-cp demo.mp4 ../   # or run from repo: python scripts/make_demo
-python -m framegen.cli demo.mp4 --mult 2            # 2× fps on torch-ROCm
+# PyTorch-for-ROCm — pick the index that matches YOUR ROCm (run: amd-smi version)
+#   ROCm 6.4.x -> rocm6.4    ROCm 6.2.x -> rocm6.2    ROCm 7.x -> rocm7.x
+pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+
+# --- verify the GPU is visible ---
+python -c "import torch; print('torch', torch.__version__, '| rocm', torch.version.rocm, '| avail', torch.cuda.is_available(), '| gpu', torch.cuda.get_device_name(0))"
+
+# --- go ---
+python scripts/make_demo.py
+python -m framegen.cli demo.mp4 --mult 2                 # 2x fps on torch-ROCm
 python -m framegen.cli my_video.mp4 --mult 4 --fp16 --tta
+python -m framegen.cli my_video.mp4 --onnx models/rife49.onnx --backend rocm   # same job via ONNX/MIGraphX
 ```
 
-### 🪟 Windows (ONNX → DirectML/OpenCL/CPU)
+### 🪟 Windows (ONNX → DirectML / OpenCL / CPU)
 
 ```bash
-pip install -r requirements-win.txt
-python -m framegen.cli --list-backends
-python -m framegen.cli my_video.mp4 --onnx models/rife49.onnx --backend dml   # AMD GPU (DirectML)
-python -m framegen.cli my_video.mp4 --onnx models/rife49.onnx --backend cpu    # CPU (always works)
+git clone https://github.com/KieranB2004/framegen-rocm
+cd framegen-rocm
+python -m venv .venv && .venv\Scripts\activate
+pip install --upgrade pip
+pip install -e .                                  # base deps
+pip install -r requirements-win.txt               # onnxruntime + DirectML
+# optional native-torch (CPU):  pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# AMD GPU (DirectML) or CPU
+python -m framegen.cli my_video.mp4 --onnx models/rife49.onnx --backend dml
+python -m framegen.cli my_video.mp4 --onnx models/rife49.onnx --backend cpu
 # the ONNX auto-downloads to ./models on first run
 ```
 
 ### 🖥 CPU (any OS)
 
 ```bash
-pip install -e . && pip install torch --index-url https://download.pytorch.org/whl/cpu
+git clone https://github.com/KieranB2004/framegen-rocm
+cd framegen-rocm
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m framegen.cli demo.mp4 --mult 2 --device cpu
 ```
 
@@ -109,9 +127,8 @@ I1 ──┴──────────────────────�
 To generate `n` frames between `I0` and `I1`, we don’t interpolate `n` pairs independently (that drifts). Instead we compute the **midpoint**, then **recursively** interpolate each half — keeping flow estimation local and stable:
 
 ```
-make(I0, I1, 3) = [ mid(I0,I1) , ... ]
-make(I0,I1,3): mid = inf(I0,I1); first=make(I0,mid,1); second=make(mid,I1,1)
-              = [first, mid, second]      # 3 frames
+make(I0, I1, 3):  mid = inf(I0,I1);  first = make(I0, mid, 1);  second = make(mid, I1, 1)
+                 = [first, mid, second]      # 3 frames
 ```
 
 ---
@@ -128,6 +145,16 @@ One RIFE graph, many **Execution Providers (EPs)** via ONNX Runtime:
 | Linux + NVIDIA | CUDA EP | ✅ NVIDIA |
 
 So the *model* is written once; the *runtime* picks the right EP per platform. That’s the whole cross-platform story.
+
+---
+
+## Weights (auto-downloaded)
+
+On first run, `framegen` pulls stable, MIT-licensed mirrors from Hugging Face into `./models/`:
+- **torch**: `Anson-Saju-George/wms-rifev3/train_log/flownet.pkl` (the RIFE checkpoint)
+- **ONNX**: `edgetools/rife/rife49.onnx` (RIFE v4.9)
+
+Pass `--model <dir>` or `--onnx <file>` to use your own.
 
 ---
 
@@ -161,7 +188,7 @@ framegen-rocm/
 
 ## Training / fine-tuning
 
-The `Model.update(imgs, gt)` method implements the RIFE training step (student+teacher+distillation). To fine-tune on your own data, feed it pairs of frames + a ground-truth middle frame (see [scripts/train_finetune.py](scripts/train_finetune.py)). Full pre-training of RIFE needs the HD/UCF datasets and multi-GPU — overkill for a 6700 XT — so **fine-tuning a pretrained checkpoint** is the realistic path here.
+The `Model.update(imgs, gt)` method implements the RIFE training step (student+teacher+distillation). To fine-tune on your own data, feed it pairs of frames + a ground-truth middle frame (see [scripts/train_finetune.py](scripts/train_finetune.py)). Full pre-training of RIFE needs the HD/UCF datasets and multi-GPU — overkill for one 6700 XT — so **fine-tuning a pretrained checkpoint** is the realistic path here.
 
 ---
 
@@ -169,7 +196,7 @@ The `Model.update(imgs, gt)` method implements the RIFE training step (student+t
 
 ```bash
 python -m pytest -v      # CPU-only smoke tests (run in CI)
-python -m framegen.cli --list-backends
+python -m framegen.cli --list-backends   # list ONNX Runtime Execution Providers
 ```
 
 ---
